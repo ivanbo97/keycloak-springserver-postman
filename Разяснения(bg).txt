@@ -1,0 +1,77 @@
+В този пример е разгледана концепцията за отделен authorization server (keycloak) + resource server (spring app) + postman (изпраща заявкa към keycloak за token и след това използва
+token-а за автентиакция пред spring).
+
+Важни стъпки от конфигурацията на Keycloak: 
+
+1. Първо е необходимо да се свали Keycloak -> Да се отвори в папка bin и през cmd да се стартира standalone.sh , което ще вдигне keycloak сървъра, за да може да достъпим неговия ui.
+
+2. По подразбирана Keycloak e на localhost:8080 . Трябва да се създаде admin-ски account и да се влезе в Administration Console.
+
+3. След това се добавя нов Realm, което всъщност е единицата, която съдържа определени потребители за определна среда (dev, prod и т.н).
+
+4. В самия Realm се добавят клиентите, които всъщност са единици, които ще изискват access токен за издаване от authorization съръвра (Keycloak).
+
+5. Access Type е confidential - защото client-ът ще има id и secret, чрез които ще може да установяват връзка и да пускат заявки към Keycloak.
+
+6. След това клиента трябва да се конфигурира основно със съответен grant type в контекста на OAuth 2.0. По подразбиране е пуснат Standart Flow, който представялва
+   'Authorization Code Flow', но той е предназначен за приложения с UI, които имат потребители. В случай, че приложението, което се свързва с Keycloak не с UI (например
+    Postman) тази опция (Standart Flow) трябва да се изключи. Същото важи и за опцията Direct Access Grants Enabled - тряба да се спре.
+
+7. Опцията Service Account трябва да е ON - това значи, че ще бъде 'Client Credentials Grant ' тип в контекста на OAuth 2.0, т.е става върпос за едно приложение без UI (примерно Postaman),
+   което ще обменя инфо с някакво API.
+
+8. След създаването на клиента може да го изберем от tab с клиенти и на tab credentials е даден secret key на клиента
+
+=======================================================================================================================================================
+Важни стъпки от конфигурацията на Spring Resource Server да използва Keycloak като authorization server
+
+1. Добавяне на dependency spring-boot-starter-oauth2-resource-server
+
+
+2. Трябва да се създаде клас, който да разчита ролите в изпратения jwt и да ги предава на Spring Security Context под формата на Collection<GrantedAuthortiy>. В текущото
+   приложение това е KeycloakRoleConverter.
+
+3. Споменатия по-горе клас трябва да се добави във вид на обект в класа за конфигурация на Spring Security (класът който наследява WebSecurityConfigurerAdapter):
+   
+		JwtAuthenticationConverter jwtAuthenticationConverter = new JwtAuthenticationConverter();
+		jwtAuthenticationConverter.setJwtGrantedAuthoritiesConverter(new KeycloakRoleConverter());
+  
+		http........oauth2ResourceServer().jwt().jwtAuthenticationConverter(jwtAuthenticationConverter);
+
+4. Трябва да се установи връзка между Spring Resource Server и authoriztion сървъра (Keycloak), за да може reource сървърът да проверя дали получения токен е валиден и на база това
+   да изпрати или не ресура. Въпросната връзка се задава в application.propterties.
+
+Пример : spring.security.oauth2.resourceserver.jwt.jwk-set-uri = http://localhost:8080/auth/realms/eazybankdev/protocol/openid-connect/certs
+   
+         ../eazybank/... eazybank  е името на realm
+
+=====================================================================================================================================================
+
+Как се взема нужният ни acess token от Keycloak authorization server ?
+
+Да речем, че искаме да използваме Postman за получаване на този access token.                                                       това е името на realm-а
+                                                                                                                                          |
+                                                                                                                                          \/ 
+1. Трябва да разберем с какви end-point-и разполага Keycloak realm-ът => Изпращаме GET заявка към: http://localhost:8080/auth/realms/eazybankdev/.well-known/openid-configuration
+
+
+2. От получения отговор ни интересува стойността за token_endpoint. Например : http://localhost:8080/auth/realms/eazybankdev/.well-known/openid-configuration
+   Именно това е адреса, от който ще поскаме access token.
+
+3. Изпращаме POST заявка на горния адрес , като в body частта трябва да посочим client_id, client_secret, scope, grant_type и да изберем x-www-form-urlencode (тип кодиране).
+
+4. След това ще получим като отговор : access_token, id_token и др. инфо за токените.
+
+5. Имайки стойността за acess_token можем да вече да изпращаме заявки за ресурр до Spring Resource Server , като към хедърите задължително добавяме Authorization, а за негова
+   стойност пишем Bearer [тук поставяме access_token]. Изпращайки така заявката spring ще вземе токена, ще се обърне към Keycloak и ще разбере дали този токен е валиден. Ако това
+   е така ще получим ресура.
+
+=================================================================================================================================
+
+Как да създадем роля в Eazycloak и да я обвържем с конкретен клиент в даден realm
+
+1. Aко искаме да добавяме роли в Keycloak, това може да става през UI-а като изберем Roles и след това въведем името на ролята.
+
+2. Следва от Clients да изберем името на клиента, към който ще добавяме роля. След това избираме Service Account Role и от списъка добавяме създадените в т.1 роли.
+
+======================================================================================================================================
